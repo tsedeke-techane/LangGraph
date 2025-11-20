@@ -1,93 +1,119 @@
-from graph_builder import graph
-from langgraph.types import Command
-import traceback
-import time
+from tools import tools
 from datetime import datetime
+import time
+import re
+
+def route_to_tool(user_input: str) -> str:
+    """Simple rule-based routing to determine which tool to use based on user input"""
+    input_lower = user_input.lower()
+
+    # Weather patterns
+    if any(word in input_lower for word in ['weather', 'temperature', 'forecast']):
+        locations = ['new york', 'london', 'tokyo', 'paris', 'sydney']
+        for location in locations:
+            if location in input_lower:
+                return f"get_weather:{location}"
+        return "get_weather:new york"  # default
+
+    # Stock patterns
+    elif any(word in input_lower for word in ['stock', 'price', 'aapl', 'apple', 'msft', 'microsoft', 'googl', 'google', 'amzn', 'amazon', 'tsla', 'tesla']):
+        symbols = {'apple': 'AAPL', 'microsoft': 'MSFT', 'google': 'GOOGL', 'amazon': 'AMZN', 'tesla': 'TSLA'}
+        for company, symbol in symbols.items():
+            if company in input_lower or symbol.lower() in input_lower:
+                return f"get_stock_price:{symbol}"
+        return "get_stock_price:AAPL"  # default
+
+    # News patterns
+    elif any(word in input_lower for word in ['news', 'headlines', 'latest']):
+        categories = ['technology', 'business', 'sports', 'entertainment', 'health']
+        for category in categories:
+            if category in input_lower:
+                return f"get_news_headlines:{category}"
+        return "get_news_headlines:general"
+
+    # Recipe patterns
+    elif any(word in input_lower for word in ['recipe', 'cook', 'make', 'ingredients']):
+        return f"suggest_recipe:{user_input}"
+
+    # Unit conversion patterns
+    elif any(word in input_lower for word in ['convert', 'to ', 'from ']):
+        return f"convert_units:{user_input}"
+
+    # Default fallback
+    return f"get_weather:new york"
+
+def demo_agent_response(user_input: str) -> str:
+    """Generate a demo response by directly calling the appropriate tool"""
+    try:
+        route = route_to_tool(user_input)
+        tool_name, *args = route.split(':')
+
+        # Find the tool
+        tool = next((t for t in tools if t.name == tool_name), None)
+        if not tool:
+            return f"❌ Tool '{tool_name}' not found. Available tools: {[t.name for t in tools]}"
+
+        # Call the tool with appropriate arguments
+        if tool_name == 'get_weather':
+            result = tool.invoke(args[0] if args else 'New York')
+        elif tool_name == 'get_stock_price':
+            result = tool.invoke(args[0] if args else 'AAPL')
+        elif tool_name == 'get_news_headlines':
+            result = tool.invoke(args[0] if args else 'general')
+        elif tool_name == 'suggest_recipe':
+            result = tool.invoke(args[0] if args else 'chicken, rice')
+        elif tool_name == 'convert_units':
+            # Parse conversion request - for now use default
+            result = tool.invoke(10.0, 'kg', 'lbs')
+        else:
+            result = f"🤖 Demo Mode: I understood you want to use the {tool_name} tool, but I'm not sure how to call it with: {args}"
+
+        return result
+
+    except Exception as e:
+        return f"❌ Error in demo mode: {str(e)}"
 
 def main():
-    try:
-        print("🤖 AI Content Generation Bot")
-        print("📊 Execution Tracking: ENABLED")
-        print("=" * 50)
-        
-        config = {'configurable': {"thread_id": 'buy-thread'}}
-        session_stats = []
+    print("🤖 AI Tool Assistant (Demo Mode)")
+    print("📊 Available Tools:")
+    for tool in tools:
+        print(f"  • {tool.name}: {tool.description}")
+    print("=" * 50)
 
-        while True:
-            user_input = input("\n💬 You: ").strip()
-            
-            if user_input.lower() in ["exit", "quit"]:
-                print(f"\n📈 Session Summary - {len(session_stats)} requests:")
-                for i, stat in enumerate(session_stats, 1):
-                    print(f"  {i}. {stat}")
-                print("👋 Goodbye!")
-                break
+    session_stats = []
 
-            if not user_input:
-                print("⚠️  Please enter a message")
-                continue
+    while True:
+        user_input = input("\n💬 You: ").strip()
 
-            # Track workflow execution
-            print(f"\n🚀 Starting workflow at {datetime.now().strftime('%H:%M:%S')}")
-            workflow_start = time.time()
-            
-            try:
-                response = graph.invoke(
-                    {"messages": [{"role": "user", "content": user_input}]}, 
-                    config=config
-                )
-                
-                workflow_elapsed = time.time() - workflow_start
-                
-                # Display response
-                print(f"\n🤖 Bot Response:")
-                print("=" * 40)
-                
-                # Print the last message (Summary)
-                print(f"📝 FINAL SUMMARY:\n{response['messages'][-1].content}\n")
+        if user_input.lower() in ["exit", "quit"]:
+            print(f"\n📈 Session Summary - {len(session_stats)} requests:")
+            for i, stat in enumerate(session_stats, 1):
+                print(f"  {i}. {stat}")
+            print("👋 Goodbye!")
+            break
 
-                # Print the Refined Article (usually the 3rd to last message, depending on flow)
-                # We iterate backwards to find the last AI message before the summary/seo steps
-                for msg in reversed(response["messages"]):
-                    if msg.type == "ai" and "Keywords:" not in msg.content and len(msg.content) > 100:
-                        print(f"📄 GENERATED CONTENT:\n{msg.content}")
-                        break
-                
-                print("=" * 40)
-                
-                # Execution summary
-                print(f"\n📊 Workflow Complete:")
-                print(f"  ⏱️  Total time: {workflow_elapsed:.2f}s")
-                print(f"  📝 Input: '{user_input[:30]}{'...' if len(user_input) > 30 else ''}'")
-                
-                # Store session stats
-                session_stats.append(f"{workflow_elapsed:.2f}s - '{user_input[:20]}...'")
+        if not user_input:
+            print("⚠️  Please enter a message")
+            continue
 
-            except Exception as e:
-                workflow_elapsed = time.time() - workflow_start
-                print(f"❌ Workflow failed after {workflow_elapsed:.2f}s: {e}")
+        # Track execution
+        print(f"\n🚀 Processing at {datetime.now().strftime('%H:%M:%S')}")
+        start_time = time.time()
 
-            # Approval handling with tracking
-            if not response["messages"][-1].content:
-                
-                print(f"\n⏳ Approval required at {datetime.now().strftime('%H:%M:%S')}")
-                approval_start = time.time()
-                
-                decision = input("✅ Approve (yes/no): ").strip().lower()
-                
-                try:
-                    result = graph.invoke(Command(resume=decision), config=config)
-                    approval_elapsed = time.time() - approval_start
-                    
-                    print(f"\n🤖 Bot: {result['messages'][-1].content}")
-                    print(f"⏱️  Approval processed in: {approval_elapsed:.2f}s")
-                    
-                except Exception as e:
-                    print(f"❌ Approval processing failed: {e}")
+        try:
+            response = demo_agent_response(user_input)
+            elapsed = time.time() - start_time
 
-    except Exception:
-        print("\n💥 Fatal error:")
-        print(traceback.format_exc())
+            print(f"\n🤖 Bot: {response}")
+            print("=" * 40)
+            print(f"📊 Processed in: {elapsed:.2f}s")
+
+            # Store session stats
+            session_stats.append(f"{elapsed:.2f}s - '{user_input[:20]}...'")
+
+        except Exception as e:
+            elapsed = time.time() - start_time
+            print(f"❌ Error after {elapsed:.2f}s: {e}")
 
 if __name__ == "__main__":
     main()
